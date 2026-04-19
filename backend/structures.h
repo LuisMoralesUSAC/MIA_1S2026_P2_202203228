@@ -128,9 +128,9 @@ struct Inode {
 };
 
 struct Content {
-    char b_name[32];               // Nombre del archivo o carpeta
+    char b_name[12];               // Nombre del archivo o carpeta
     int b_inodo;                   // Apuntador al inodo
-
+    
     Content() {
         memset(b_name, 0, sizeof(b_name));
         b_inodo = -1;

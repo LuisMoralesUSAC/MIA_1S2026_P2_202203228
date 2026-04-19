@@ -24,6 +24,8 @@
 #include "mkfile.h"
 #include "cat.h"
 #include "journaling.h"
+#include "unmount.h"
+#include "remove.h"
 
 // Función para convertir string a minúsculas
 std::string toLowerCase(const std::string& str) {
@@ -292,6 +294,13 @@ std::string executeCommand(const std::string& commandLine) {
     } else if (cmd == "mounted") {
         // Mostrar todas las particiones montadas
         return CommandMount::listMountedPartitions();
+
+    } else if (cmd == "unmount") {
+        std::string id = parseParameter(commandLine, "-id");
+        if (id.empty()) {
+            return "Error: unmount requiere el parámetro -id";
+        }
+        return comandoUnmount(id);
         
     } else if (cmd == "mkusr") {
         std::string user = parseParameter(commandLine, "-user");
@@ -396,6 +405,13 @@ std::string executeCommand(const std::string& commandLine) {
         }
         
         return comandoCat(archivos);
+
+    } else if (cmd == "remove") {
+        std::string removePath = parseParameter(commandLine, "-path");
+        if (removePath.empty()) {
+            return "Error: remove requiere el parámetro -path";
+        }
+        return comandoRemove(removePath);
     
     } else if (cmd == "session") {
         return SessionManager::currentSession.getInfo();
