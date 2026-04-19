@@ -1,0 +1,17 @@
+mkdisk -size=10 -unit=M -path=~/discos/Test.mia
+fdisk -size=8 -unit=M -path=~/discos/Test.mia -name=Part1
+mount -path=~/discos/Test.mia -name=Part1
+mkfs -id=vda1 -type=full
+login -user=root -pass=123 -id=vda1
+mkgrp -name=usuarios
+mkusr -user=juan -pass=123 -grp=usuarios
+mkdir -path=/home -p
+mkdir -path=/home/juan -p
+mkfile -path=/home/root.txt -size=100
+logout
+login -user=juan -pass=123 -id=vda1
+cat -file1=/home/root.txt
+mkfile -path=/home/juan/datos.txt -size=50
+cat -file1=/home/juan/datos.txt
+logout
+exit
