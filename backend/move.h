@@ -106,8 +106,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
         }
     }
 
-    // Misma partición: solo cambiar referencias
-    // 1. Agregar entrada en el destino
+    // Agregar entrada en el destino
     inodo_destino = leerInodo(archivo, super, nav_destino.inodo_actual);
     bool agregado = false;
 
@@ -148,7 +147,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
         super.s_free_blocks_count--;
     }
 
-    // 2. Eliminar entrada en el padre origen
+    // Eliminar entrada en el padre origen
     Inode inodo_padre_origen = leerInodo(archivo, super, nav_origen.inodo_padre);
     for (int i = 0; i < 12 && inodo_padre_origen.i_block[i] != -1; i++) {
         FolderBlock fb = leerBloqueCarpeta(archivo, super, inodo_padre_origen.i_block[i]);
@@ -163,7 +162,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
     }
     entrada_eliminada:
 
-    // 3. Actualizar entrada '..' dentro del inodo movido si es carpeta
+    // Actualizar entrada '..' dentro del inodo movido si es carpeta
     if (inodo_origen.i_type == '1') {
         for (int i = 0; i < 12 && inodo_origen.i_block[i] != -1; i++) {
             FolderBlock fb = leerBloqueCarpeta(archivo, super, inodo_origen.i_block[i]);
@@ -181,7 +180,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
         punto_punto_actualizado:;
     }
 
-    // 4. Actualizar tiempo de modificación
+    // Actualizar tiempo de modificación
     inodo_origen.i_mtime = std::time(nullptr);
     escribirInodo(archivo, super, nav_origen.inodo_actual, inodo_origen);
 

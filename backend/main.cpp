@@ -32,6 +32,8 @@
 #include "find.h"
 #include "chown.h"
 #include "chmod.h"
+#include "journal_helpers.h"
+#include "loss.h"
 
 // Función para convertir string a minúsculas
 std::string toLowerCase(const std::string& str) {
@@ -112,6 +114,11 @@ bool hasFlag(const std::string& commandLine, const std::string& flagName) {
     }
     
     return false;
+}
+
+// Función auxiliar para verificar si un resultado es error
+bool isErrorResult(const std::string& r) {
+    return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
 }
 
 // Función para parsear y ejecutar comandos
@@ -318,7 +325,7 @@ std::string executeCommand(const std::string& commandLine) {
             return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
-            CommandJournaling::add(SessionManager::currentSession.currentID, "mkusr", "/users.txt", user + "," + grp);
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "mkusr", "/users.txt", user + "," + grp);
         }
         
         return result;
@@ -331,7 +338,7 @@ std::string executeCommand(const std::string& commandLine) {
             return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
-            CommandJournaling::add(SessionManager::currentSession.currentID, "rmusr", "/users.txt", user);
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "rmusr", "/users.txt", user);
         }
         
         return result;
@@ -345,7 +352,7 @@ std::string executeCommand(const std::string& commandLine) {
             return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
-            CommandJournaling::add(SessionManager::currentSession.currentID, "chgrp", "/users.txt", user + "->" + grp);
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "chgrp", "/users.txt", user + "->" + grp);
         }
         
         return result;
@@ -361,7 +368,7 @@ std::string executeCommand(const std::string& commandLine) {
             return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
-            CommandJournaling::add(SessionManager::currentSession.currentID, "mkdir", dirPath, hasP ? "-p" : "-");
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "mkdir", dirPath, hasP ? "-p" : "-");
         }
         
         return result;
@@ -384,7 +391,7 @@ std::string executeCommand(const std::string& commandLine) {
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
             std::string detail = !cont.empty() ? cont : ("size=" + std::to_string(size));
-            CommandJournaling::add(SessionManager::currentSession.currentID, "mkfile", filePath, detail);
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "mkfile", filePath, detail);
         }
         
         return result;
@@ -417,7 +424,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (removePath.empty()) {
             return "Error: remove requiere el parámetro -path";
         }
-        return comandoRemove(removePath);
+        std::string result = comandoRemove(removePath);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "remove", removePath, "-");
+        }
+        return result;
 
     } else if (cmd == "rename") {
         std::string renamePath = parseParameter(commandLine, "-path");
@@ -425,7 +436,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (renamePath.empty() || newName.empty()) {
             return "Error: rename requiere los parámetros -path y -name";
         }
-        return comandoRename(renamePath, newName);
+        std::string result = comandoRename(renamePath, newName);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "rename", renamePath, newName);
+        }
+        return result;
 
     } else if (cmd == "copy") {
         std::string copyPath = parseParameter(commandLine, "-path");
@@ -433,7 +448,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (copyPath.empty() || destPath.empty()) {
             return "Error: copy requiere los parámetros -path y -destino";
         }
-        return comandoCopy(copyPath, destPath);
+        std::string result = comandoCopy(copyPath, destPath);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "copy", copyPath, destPath);
+        }
+        return result;
 
     } else if (cmd == "move") {
         std::string movePath = parseParameter(commandLine, "-path");
@@ -441,7 +460,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (movePath.empty() || destPath.empty()) {
             return "Error: move requiere los parámetros -path y -destino";
         }
-        return comandoMove(movePath, destPath);
+        std::string result = comandoMove(movePath, destPath);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "move", movePath, destPath);
+        }
+        return result;
 
     } else if (cmd == "find") {
         std::string findPath = parseParameter(commandLine, "-path");
@@ -459,7 +482,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (chownPath.empty() || usuario.empty()) {
             return "Error: chown requiere los parámetros -path y -usuario";
         }
-        return comandoChown(chownPath, usuario, hasR);
+        std::string result = comandoChown(chownPath, usuario, hasR);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "chown", chownPath, usuario);
+        }
+        return result;
 
     } else if (cmd == "chmod") {
         std::string chmodPath = parseParameter(commandLine, "-path");
@@ -469,7 +496,11 @@ std::string executeCommand(const std::string& commandLine) {
         if (chmodPath.empty() || ugo.empty()) {
             return "Error: chmod requiere los parámetros -path y -ugo";
         }
-        return comandoChmod(chmodPath, ugo, hasR);
+        std::string result = comandoChmod(chmodPath, ugo, hasR);
+        if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "chmod", chmodPath, ugo);
+        }
+        return result;
     
     } else if (cmd == "session") {
         return SessionManager::currentSession.getInfo();
@@ -492,7 +523,7 @@ std::string executeCommand(const std::string& commandLine) {
             return r.rfind("Error", 0) == 0 || r.rfind("error", 0) == 0;
         };
         if (!isErrorResult(result) && SessionManager::currentSession.isLoggedIn()) {
-            CommandJournaling::add(SessionManager::currentSession.currentID, "mkgrp", "/users.txt", name);
+            JournalHelpers::registrar(SessionManager::currentSession.currentID, "mkgrp", "/users.txt", name);
         }
         
         return result;
@@ -507,7 +538,14 @@ std::string executeCommand(const std::string& commandLine) {
     } else if (cmd == "journaling") {
         std::string id = parseParameter(commandLine, "-id");
         if (id.empty()) return "Error: journaling requiere -id";
-        return CommandJournaling::execute(id);
+        return JournalHelpers::mostrarJournal(id);
+
+    } else if (cmd == "loss") {
+        std::string id = parseParameter(commandLine, "-id");
+        if (id.empty()) {
+            return "Error: loss requiere el parámetro -id";
+        }
+        return comandoLoss(id);
 
     } else if (cmd == "exit" || cmd == "quit") {
         return "EXIT";
