@@ -30,6 +30,8 @@
 #include "copy.h"
 #include "move.h"
 #include "find.h"
+#include "chown.h"
+#include "chmod.h"
 
 // Función para convertir string a minúsculas
 std::string toLowerCase(const std::string& str) {
@@ -448,6 +450,26 @@ std::string executeCommand(const std::string& commandLine) {
             return "Error: move requiere los parámetros -path y -name";
         }
         return comandoFind(findPath, findName);
+
+    } else if (cmd == "chown") {
+        std::string chownPath = parseParameter(commandLine, "-path");
+        std::string usuario   = parseParameter(commandLine, "-usuario");
+        bool hasR = (commandLine.find(" -r") != std::string::npos ||
+                     commandLine.find("\t-r") != std::string::npos);
+        if (chownPath.empty() || usuario.empty()) {
+            return "Error: chown requiere los parámetros -path y -usuario";
+        }
+        return comandoChown(chownPath, usuario, hasR);
+
+    } else if (cmd == "chmod") {
+        std::string chmodPath = parseParameter(commandLine, "-path");
+        std::string ugo       = parseParameter(commandLine, "-ugo");
+        bool hasR = (commandLine.find(" -r") != std::string::npos ||
+                     commandLine.find("\t-r") != std::string::npos);
+        if (chmodPath.empty() || ugo.empty()) {
+            return "Error: chmod requiere los parámetros -path y -ugo";
+        }
+        return comandoChmod(chmodPath, ugo, hasR);
     
     } else if (cmd == "session") {
         return SessionManager::currentSession.getInfo();
