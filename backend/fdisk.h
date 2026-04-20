@@ -529,7 +529,6 @@ namespace CommandFdisk {
                 mbr.mbr_partitions[i].part_type == 'E') {
 
                 int extEnd = mbr.mbr_partitions[i].part_start + mbr.mbr_partitions[i].part_size;
-                int prevPos = -1;
                 int currentPos = mbr.mbr_partitions[i].part_start;
 
                 while (currentPos != -1) {
@@ -580,8 +579,7 @@ namespace CommandFdisk {
                                "  Tamaño anterior: " + std::to_string(currentSize) + " bytes\n" +
                                "  Tamaño nuevo: " + std::to_string(newSize) + " bytes";
                     }
-
-                    prevPos = currentPos;
+                    
                     if (ebr.part_next <= 0) break;
                     currentPos = ebr.part_next;
                 }

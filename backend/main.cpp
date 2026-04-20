@@ -26,6 +26,10 @@
 #include "journaling.h"
 #include "unmount.h"
 #include "remove.h"
+#include "rename.h"
+#include "copy.h"
+#include "move.h"
+#include "find.h"
 
 // Función para convertir string a minúsculas
 std::string toLowerCase(const std::string& str) {
@@ -412,6 +416,38 @@ std::string executeCommand(const std::string& commandLine) {
             return "Error: remove requiere el parámetro -path";
         }
         return comandoRemove(removePath);
+
+    } else if (cmd == "rename") {
+        std::string renamePath = parseParameter(commandLine, "-path");
+        std::string newName    = parseParameter(commandLine, "-name");
+        if (renamePath.empty() || newName.empty()) {
+            return "Error: rename requiere los parámetros -path y -name";
+        }
+        return comandoRename(renamePath, newName);
+
+    } else if (cmd == "copy") {
+        std::string copyPath = parseParameter(commandLine, "-path");
+        std::string destPath = parseParameter(commandLine, "-destino");
+        if (copyPath.empty() || destPath.empty()) {
+            return "Error: copy requiere los parámetros -path y -destino";
+        }
+        return comandoCopy(copyPath, destPath);
+
+    } else if (cmd == "move") {
+        std::string movePath = parseParameter(commandLine, "-path");
+        std::string destPath = parseParameter(commandLine, "-destino");
+        if (movePath.empty() || destPath.empty()) {
+            return "Error: move requiere los parámetros -path y -destino";
+        }
+        return comandoMove(movePath, destPath);
+
+    } else if (cmd == "find") {
+        std::string findPath = parseParameter(commandLine, "-path");
+        std::string findName = parseParameter(commandLine, "-name");
+        if (findPath.empty() || findName.empty()) {
+            return "Error: move requiere los parámetros -path y -name";
+        }
+        return comandoFind(findPath, findName);
     
     } else if (cmd == "session") {
         return SessionManager::currentSession.getInfo();
