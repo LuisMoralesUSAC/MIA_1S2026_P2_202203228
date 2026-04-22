@@ -78,6 +78,14 @@ std::string leerUserstxt(const std::string& ruta_particion, int inicio_particion
     return contenido;
 }
 
+inline bool buscarParticionPorId(const std::string& id, CommandMount::MountedPartition& particion) {
+    // Primero intentar con el mapa en memoria
+    if (CommandMount::getMountedPartition(id, particion)) {
+        return true;
+    }
+    return false;
+}
+
 std::string comandoLogin(const std::string& usuario, const std::string& password, const std::string& id) {
     if (SessionManager::currentSession.isLoggedIn()) {
         return "Error: Ya hay una sesión activa. Use 'logout' primero.";
