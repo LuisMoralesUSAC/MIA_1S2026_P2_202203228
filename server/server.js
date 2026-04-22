@@ -38,42 +38,30 @@ app.post('/api/execute-script', (req, res) => {
     child.stderr.on('data', (data) => { stderr += data.toString(); });
 
     child.on('close', () => {
-        const rawLines = stdout.split('\n');
         const results = [];
-        let currentOutput = [];
-        let cmdIndex = 0;
-
-        for (const rawLine of rawLines) {
-            if (rawLine.startsWith('> ')) {
-                // Guardar salida del comando anterior
-                if (cmdIndex > 0 && cmdIndex - 1 < lines.length) {
-                    results[cmdIndex - 1] = {
-                        command: lines[cmdIndex - 1],
-                        output: currentOutput.join('\n').trim(),
-                        error: null
-                    };
-                }
-                currentOutput = [];
-                cmdIndex++;
-            } else {
-                currentOutput.push(rawLine);
-            }
-        }
-
-        // Guardar último comando
-        if (cmdIndex > 0 && cmdIndex - 1 < lines.length) {
-            results[cmdIndex - 1] = {
-                command: lines[cmdIndex - 1],
-                output: currentOutput.join('\n').trim(),
-                error: null
-            };
-        }
-
-        // Rellenar comandos sin resultado
+        const parts = stdout.split(/\n> /);
+    
+        // Filtrar la parte inicial que puede ser vacía
+        const commandParts = parts
+            .map(p => p.trim())
+            .filter(p => p.length > 0)
+            .filter(p => !p.startsWith('Saliendo del programa'));
+        
         lines.forEach((cmd, i) => {
-            if (!results[i]) {
-                results[i] = { command: cmd, output: '', error: null };
-            }
+            const salida = commandParts[i] || '';
+
+            // Remover el comando mismo si aparece al inicio (algunos prompts lo incluyen)
+            let output = salida;
+
+            // Limpiar "Saliendo del programa..." del final de cualquier output
+            output = output.replace(/\nSaliendo del programa\.\.\.\s*$/, '').trim();
+            output = output.replace(/Saliendo del programa\.\.\.\s*$/, '').trim();
+
+            results.push({
+                command: cmd,
+                output: output,
+                error: null
+            });
         });
 
         if (stderr) {
@@ -274,62 +262,65 @@ app.post('/api/filesystem/ls', (req, res) => {
 
     const expandedPath = (diskPath || '').replace('~', process.env.HOME || '');
 
+    // Script que monta, loguea y ejecuta rep ls a un archivo de texto
+    const lsOutPath = `/tmp/mia_ls_${Date.now()}.txt`;
     const script = [
         `mount -path=${expandedPath} -name=${partitionName}`,
         `login -user=${usuario} -pass=${password} -id=${mountId}`,
-        `ls_json -path=${dirPath}`,
+        `rep -name=ls -path=${lsOutPath} -id=${mountId} -path_file_ls=${dirPath}`,
         'exit'
     ].join('\n');
 
     const child = spawn(DISK_MANAGER_PATH, []);
     let stdout = '';
+    let stderr = '';
     child.stdout.on('data', d => { stdout += d.toString(); });
-
+    child.stderr.on('data', d => { stderr += d.toString(); });
     child.on('close', () => {
-        // Extraer la línea JSON de la salida
-        const lineas = stdout.split('\n');
-        let jsonStr = '';
-
-        for (const linea of lineas) {
-            const trimmed = linea.trim();
-            if (trimmed.startsWith('[')) {
-                jsonStr = trimmed;
-                break;
-            }
-        }
-
-        if (!jsonStr) {
-            return res.json({ success: true, entradas: [] });
-        }
-
+        // Intentar leer el archivo .txt generado por rep ls
         try {
-            const entradas = JSON.parse(jsonStr);
-            res.json({ success: true, entradas });
-        } catch (e) {
-            res.json({ success: true, entradas: [], parseError: jsonStr });
+            if (fs.existsSync(lsOutPath)) {
+                const contenido = fs.readFileSync(lsOutPath, 'utf8');
+                fs.unlinkSync(lsOutPath);
+                const entradas = parsearLsTexto(contenido);
+                if (entradas.length > 0) {
+                    return res.json({ success: true, entradas });
+                }
+            }
+        } catch(e) {
+            console.error('Error leyendo archivo ls:', e);
         }
+        const entradas = parsearStdoutInodos(stdout, dirPath, expandedPath);
+        res.json({ success: true, entradas, raw: stdout });
     });
-
     child.on('error', e => res.status(500).json({ success: false, message: e.message }));
     child.stdin.write(script + '\n');
     child.stdin.end();
 });
 
-function parsearLs(contenido, dirPath) {
+function parsearStdoutInodos(stdout, dirPath, diskPath) {
+    return [];
+}
+
+function parsearLsTexto(contenido) {
     const entradas = [];
     const lineas = contenido.split('\n');
     for (const linea of lineas) {
+        // Formato: "permisos | owner | grupo | size | fecha | tipo | nombre"
         const partes = linea.split('|').map(p => p.trim()).filter(Boolean);
-        if (partes.length >= 7 && partes[0] !== 'Permisos') {
-            entradas.push({
-                permisos: partes[0],
-                owner:    partes[1],
-                grupo:    partes[2],
-                size:     partes[3],
-                fecha:    partes[4],
-                tipo:     partes[5],
-                nombre:   partes[6]
-            });
+        if (partes.length >= 7 && partes[0] !== 'Permisos' && partes[5] !== 'Tipo') {
+            const nombre = partes[6];
+            if (nombre && nombre !== '.' && nombre !== '..') {
+                entradas.push({
+                    permisos: partes[0],
+                    owner:    partes[1],
+                    grupo:    partes[2],
+                    size:     partes[3],
+                    fecha:    partes[4],
+                    tipo:     partes[5],
+                    nombre:   nombre
+                });
+            }
         }
     }
     return entradas;
@@ -343,27 +334,43 @@ app.post('/api/filesystem/cat', (req, res) => {
     }
 
     const expandedPath = (diskPath || '').replace('~', process.env.HOME || '');
+    const catOutPath = `/tmp/mia_cat_${Date.now()}.txt`;
+    const DELIM = `__CATOUT__${Date.now()}__`;
+
     const script = [
         `mount -path=${expandedPath} -name=${partitionName}`,
         `login -user=${usuario} -pass=${password} -id=${mountId}`,
         `cat -file1=${filePath}`,
-        'exit'
+        `exit`
     ].join('\n');
 
     const child = spawn(DISK_MANAGER_PATH, []);
-    let stdout = '';
-    child.stdout.on('data', d => { stdout += d.toString(); });
+    let stdoutBuf = Buffer.alloc(0);
+
+    child.stdout.on('data', (data) => {
+        stdoutBuf = Buffer.concat([stdoutBuf, data]);
+    });
+
     child.on('close', () => {
-        // Extraer solo la salida del cat
-        const lineas = stdout.split('\n');
-        let capturando = false;
-        let contenido = [];
-        for (const l of lineas) {
-            if (l.includes('Sesión iniciada exitosamente')) { capturando = false; continue; }
-            if (l.includes('ID Partición:')) { capturando = true; continue; }
-            if (capturando && !l.startsWith('>')) contenido.push(l);
+        const stdout = stdoutBuf.toString('utf8');
+        const parts = stdout.split(/\n> /);
+        let contenido = '';
+        
+        for (let i = 1; i < parts.length; i++) {
+            const parte = parts[i].trim();
+
+            if (parte.includes('=== MOUNT ===') || parte.includes('Partición montada')) continue;
+            if (parte.includes('Sesión iniciada') || parte.includes('GID:')) continue;
+            if (parte.includes('Saliendo del programa') || parte.startsWith('exit')) continue;
+            if (parte.includes('Sesión cerrada')) continue;
+            if (parte.includes('ya está montada')) continue;
+            if (parte.length > 0) {
+                contenido = parte;
+                break;
+            }
         }
-        res.json({ success: true, contenido: contenido.join('\n').trim() });
+
+        res.json({ success: true, contenido: contenido || '(archivo vacío)' });
     });
     child.on('error', e => res.status(500).json({ success: false, message: e.message }));
     child.stdin.write(script + '\n');

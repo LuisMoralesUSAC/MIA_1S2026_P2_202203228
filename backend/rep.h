@@ -13,6 +13,7 @@
 #include <libgen.h>
 #include "structures.h"
 #include "mount.h"
+#include "filesystem_helpers.h"
 
 namespace CommandRep {
     
@@ -996,32 +997,38 @@ namespace CommandRep {
         return "Reporte FILE generado en: " + path + " (implementación básica)";
     }
     
-    // Reporte LS - Lista contenido de una carpeta
-    inline std::string reportLs(const std::string& path, const std::string& diskPath, 
-                                 int inicio_particion, const std::string& rutaCarpeta) {
+    // Reporte LS como imagen Graphviz (mantener del Proyecto 1)
+    inline std::string reportLsGrafico(const std::string& path, const std::string& diskPath, 
+                                        int inicio_particion, const std::string& rutaCarpeta) {
         std::string ruta = rutaCarpeta.empty() ? "/" : rutaCarpeta;
-        
-        std::ifstream file(diskPath, std::ios::binary);
-        if (!file.is_open()) {
+                                        
+        FILE* archivo = fopen(diskPath.c_str(), "rb");
+        if (!archivo) {
             return "Error: no se pudo abrir el disco '" + diskPath + "'";
         }
-        
-        // Leer Superblock
+
         Superblock super;
-        file.seekg(inicio_particion, std::ios::beg);
-        file.read(reinterpret_cast<char*>(&super), sizeof(Superblock));
-        
-        // Leer inodo raíz (simplificado - solo raíz por ahora)
-        Inode inodo_raiz;
-        file.seekg(super.s_inode_start, std::ios::beg);
-        file.read(reinterpret_cast<char*>(&inodo_raiz), sizeof(Inode));
-        
-        // Generar DOT para Graphviz
+        fseek(archivo, inicio_particion, SEEK_SET);
+        fread(&super, sizeof(Superblock), 1, archivo);
+
+        // Navegar a la ruta especificada
+        ResultadoNavegacion nav = navegarRuta(archivo, super, ruta, false);
+        if (!nav.exito) {
+            fclose(archivo);
+            return "Error: no se encontró la ruta '" + ruta + "'";
+        }
+
+        Inode inodo_dir = leerInodo(archivo, super, nav.inodo_actual);
+        if (inodo_dir.i_type != '1') {
+            fclose(archivo);
+            return "Error: la ruta '" + ruta + "' no es un directorio";
+        }
+
         std::ostringstream dot;
         dot << "digraph LS_Report {\n";
         dot << "    node [shape=plaintext];\n";
         dot << "    rankdir=TB;\n\n";
-        
+
         dot << "    ls [label=<<TABLE BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"4\">\n";
         dot << "        <TR BGCOLOR=\"#000000\">\n";
         dot << "            <TD><FONT COLOR=\"white\"><B>Permisos</B></FONT></TD>\n";
@@ -1032,63 +1039,51 @@ namespace CommandRep {
         dot << "            <TD><FONT COLOR=\"white\"><B>Tipo</B></FONT></TD>\n";
         dot << "            <TD><FONT COLOR=\"white\"><B>Name</B></FONT></TD>\n";
         dot << "        </TR>\n";
-        
-        // Leer bloques de la carpeta raíz
-        for (int i = 0; i < 12 && inodo_raiz.i_block[i] != -1; i++) {
+
+        for (int i = 0; i < 12 && inodo_dir.i_block[i] != -1; i++) {
             FolderBlock bloque;
-            file.seekg(super.s_block_start + (inodo_raiz.i_block[i] * 64), std::ios::beg);
-            file.read(reinterpret_cast<char*>(&bloque), sizeof(FolderBlock));
-            
+            int posBloque = super.s_block_start + (inodo_dir.i_block[i] * 64);
+            fseek(archivo, posBloque, SEEK_SET);
+            fread(&bloque, sizeof(FolderBlock), 1, archivo);
+
             for (int j = 0; j < 4; j++) {
-                if (bloque.b_content[j].b_inodo != -1) {
-                    std::string nombre(bloque.b_content[j].b_name);
-                    size_t pos_nulo = nombre.find('\0');
-                    if (pos_nulo != std::string::npos) {
-                        nombre = nombre.substr(0, pos_nulo);
-                    }
-                    
-                    // Saltar . y ..
-                    if (nombre == "." || nombre == "..") {
-                        continue;
-                    }
-                    
-                    // Leer inodo del archivo/carpeta
-                    Inode inodo_hijo;
-                    file.seekg(super.s_inode_start + (bloque.b_content[j].b_inodo * sizeof(Inode)), std::ios::beg);
-                    file.read(reinterpret_cast<char*>(&inodo_hijo), sizeof(Inode));
-                    
-                    // Formatear permisos (simplificado)
-                    std::string permisos = std::to_string(inodo_hijo.i_perm);
-                    
-                    // Formatear fecha
-                    char fecha[100];
-                    struct tm* timeinfo = localtime(&inodo_hijo.i_mtime);
-                    strftime(fecha, sizeof(fecha), "%d/%m/%Y %H:%M", timeinfo);
-                    
-                    std::string tipo = (inodo_hijo.i_type == '0' ? "Archivo" : "Carpeta");
-                    
-                    dot << "        <TR>\n";
-                    dot << "            <TD>" << permisos << "</TD>\n";
-                    dot << "            <TD>" << inodo_hijo.i_uid << "</TD>\n";
-                    dot << "            <TD>" << inodo_hijo.i_gid << "</TD>\n";
-                    dot << "            <TD>" << inodo_hijo.i_size << "</TD>\n";
-                    dot << "            <TD>" << fecha << "</TD>\n";
-                    dot << "            <TD>" << tipo << "</TD>\n";
-                    dot << "            <TD>" << nombre << "</TD>\n";
-                    dot << "        </TR>\n";
-                }
+                if (bloque.b_content[j].b_inodo == -1) continue;
+
+                char buf[13] = {0};
+                strncpy(buf, bloque.b_content[j].b_name, 12);
+                std::string nombre(buf);
+                if (nombre == "." || nombre == "..") continue;
+
+                int inodo_idx = bloque.b_content[j].b_inodo;
+                if (inodo_idx < 0 || inodo_idx >= super.s_inodes_count) continue;
+
+                Inode inodo_hijo = leerInodo(archivo, super, inodo_idx);
+
+                std::string permisos = std::to_string(inodo_hijo.i_perm);
+                char fecha[32];
+                struct tm* timeinfo = localtime(&inodo_hijo.i_mtime);
+                strftime(fecha, sizeof(fecha), "%d/%m/%Y %H:%M", timeinfo);
+                std::string tipo = (inodo_hijo.i_type == '0') ? "Archivo" : "Carpeta";
+
+                dot << "        <TR>\n";
+                dot << "            <TD>" << permisos << "</TD>\n";
+                dot << "            <TD>" << inodo_hijo.i_uid << "</TD>\n";
+                dot << "            <TD>" << inodo_hijo.i_gid << "</TD>\n";
+                dot << "            <TD>" << inodo_hijo.i_size << "</TD>\n";
+                dot << "            <TD>" << fecha << "</TD>\n";
+                dot << "            <TD>" << tipo << "</TD>\n";
+                dot << "            <TD>" << nombre << "</TD>\n";
+                dot << "        </TR>\n";
             }
         }
-        
+
         dot << "    </TABLE>>];\n";
         dot << "}\n";
-        file.close();
-        
-        // Crear directorio si no existe
+        fclose(archivo);
+
         std::string parentPath = getParentPath(path);
         createDirectories(parentPath);
-        
-        // Guardar archivo .dot
+
         std::string dotPath = path + ".dot";
         std::ofstream dotFile(dotPath);
         if (!dotFile.is_open()) {
@@ -1096,22 +1091,103 @@ namespace CommandRep {
         }
         dotFile << dot.str();
         dotFile.close();
-        
-        // Ejecutar Graphviz
+
         std::string ext = getExtension(path);
         std::string cmd = "dot -T" + ext + " \"" + dotPath + "\" -o \"" + path + "\" 2>/dev/null";
         system(cmd.c_str());
-        
-        // Eliminar archivo .dot temporal
         remove(dotPath.c_str());
-        
-        // Verificar si se creó el archivo
+
         std::ifstream checkFile(path);
         if (!checkFile.good()) {
             return "Error: no se pudo generar el reporte con Graphviz";
         }
         checkFile.close();
+
+        return "Reporte LS generado exitosamente en: " + path;
+    }
+
+    // Reporte LS como texto plano (para el visualizador web)
+    inline std::string reportLs(const std::string& path, const std::string& diskPath, 
+                                 int inicio_particion, const std::string& rutaCarpeta) {
+        std::string ruta = rutaCarpeta.empty() ? "/" : rutaCarpeta;
+                                
+        // Si la extensión es jpg/png/svg, generar gráfico
+        std::string ext = getExtension(path);
+        if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "svg" || ext == "pdf") {
+            return reportLsGrafico(path, diskPath, inicio_particion, rutaCarpeta);
+        }
+
+        // Si es .txt, generar texto plano para el visualizador web
+        FILE* archivo = fopen(diskPath.c_str(), "rb");
+        if (!archivo) {
+            return "Error: no se pudo abrir el disco '" + diskPath + "'";
+        }
+
+        Superblock super;
+        fseek(archivo, inicio_particion, SEEK_SET);
+        fread(&super, sizeof(Superblock), 1, archivo);
+
+        ResultadoNavegacion nav = navegarRuta(archivo, super, ruta, false);
+        if (!nav.exito) {
+            fclose(archivo);
+            return "Error: no se encontró la ruta '" + ruta + "'";
+        }
+
+        Inode inodo_dir = leerInodo(archivo, super, nav.inodo_actual);
+        if (inodo_dir.i_type != '1') {
+            fclose(archivo);
+            return "Error: la ruta '" + ruta + "' no es un directorio";
+        }
+
+        std::string parentPath = getParentPath(path);
+        createDirectories(parentPath);
+
+        std::ofstream outputFile(path);
+        if (!outputFile.is_open()) {
+            fclose(archivo);
+            return "Error: no se pudo crear el archivo de reporte";
+        }
+
+        outputFile << "Permisos | Owner | Grupo | Size | Fecha | Tipo | Nombre\n";
+
+        for (int i = 0; i < 12 && inodo_dir.i_block[i] != -1; i++) {
+            FolderBlock bloque;
+            int posBloque = super.s_block_start + (inodo_dir.i_block[i] * 64);
+            fseek(archivo, posBloque, SEEK_SET);
+            fread(&bloque, sizeof(FolderBlock), 1, archivo);
         
+            for (int j = 0; j < 4; j++) {
+                if (bloque.b_content[j].b_inodo == -1) continue;
+
+                char buf[13] = {0};
+                strncpy(buf, bloque.b_content[j].b_name, 12);
+                std::string nombre(buf);
+                if (nombre == "." || nombre == "..") continue;
+
+                int inodo_idx = bloque.b_content[j].b_inodo;
+                if (inodo_idx < 0 || inodo_idx >= super.s_inodes_count) continue;
+
+                Inode inodo_hijo = leerInodo(archivo, super, inodo_idx);
+
+                std::string permisos = std::to_string(inodo_hijo.i_perm);
+                char fecha[32];
+                struct tm* timeinfo = localtime(&inodo_hijo.i_mtime);
+                strftime(fecha, sizeof(fecha), "%d/%m/%Y %H:%M", timeinfo);
+                std::string tipo = (inodo_hijo.i_type == '0') ? "Archivo" : "Carpeta";
+            
+                outputFile << permisos << " | "
+                           << inodo_hijo.i_uid << " | "
+                           << inodo_hijo.i_gid << " | "
+                           << inodo_hijo.i_size << " | "
+                           << fecha << " | "
+                           << tipo << " | "
+                           << nombre << "\n";
+            }
+        }
+
+        outputFile.close();
+        fclose(archivo);
+
         return "Reporte LS generado exitosamente en: " + path;
     }
     
