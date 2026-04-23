@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { listarDirectorio, leerArchivo } from '../services/api';
+import VisualizadorJournal from './VisualizadorJournal';
 
 function ExplorarArchivos({ particion, disco, sesion, onCerrarSesion }) {
     const [rutaActual, setRutaActual]     = useState('/');
@@ -9,6 +10,7 @@ function ExplorarArchivos({ particion, disco, sesion, onCerrarSesion }) {
     const [archivoAbierto, setArchivoAbierto] = useState(null);
     const [contenidoArchivo, setContenidoArchivo] = useState('');
     const [cargandoArchivo, setCargandoArchivo]   = useState(false);
+    const [mostrarJournal, setMostrarJournal] = useState(false);
 
     const params = useCallback(() => ({
         mountId:       particion.mountId,
@@ -108,6 +110,9 @@ function ExplorarArchivos({ particion, disco, sesion, onCerrarSesion }) {
                     <span style={estilos.sesionInfo}>
                         👤 {sesion.usuario}
                     </span>
+                    <button style={estilos.btnJournal} onClick={() => setMostrarJournal(true)}>
+                        📋 Journal
+                    </button>
                     <button style={estilos.btnCerrar} onClick={onCerrarSesion}>
                         🚪 Cerrar Sesión
                     </button>
@@ -229,6 +234,15 @@ function ExplorarArchivos({ particion, disco, sesion, onCerrarSesion }) {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {mostrarJournal && (
+                <VisualizadorJournal
+                    particion={particion}
+                    disco={disco}
+                    sesion={sesion}
+                    onCerrar={() => setMostrarJournal(false)}
+                />
             )}
         </div>
     );
@@ -469,6 +483,16 @@ const estilos = {
         wordBreak: 'break-word',
         flex: 1,
         color: '#222'
+    },
+    btnJournal: {
+        padding: '6px 14px',
+        background: 'linear-gradient(135deg, #FF9800, #FFC107)',
+        color: 'white',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontWeight: 'bold',
+        fontSize: '0.85em'
     }
 };
 
