@@ -94,28 +94,62 @@ bool escribirUsersCompleto(const std::string& ruta_disco, int inicio_particion, 
     
     inodo_users.i_size = contenido.length();
     inodo_users.i_mtime = time(nullptr);
-    
+
+    int bloques_necesarios = (contenido.length() + 63) / 64;
+    for (int i = 0; i < bloques_necesarios && i < 12; i++) {
+        if (inodo_users.i_block[i] == -1) {
+
+            std::vector<char> bitmap(super.s_blocks_count);
+            fseek(archivo, super.s_bm_block_start, SEEK_SET);
+            fread(bitmap.data(), 1, super.s_blocks_count, archivo);
+            
+            int bloque_libre = -1;
+            for (int j = 0; j < super.s_blocks_count; j++) {
+                if (bitmap[j] == '0') {
+                    bloque_libre = j;
+                    break;
+                }
+            }
+
+            if (bloque_libre == -1) {
+                fclose(archivo);
+                return false;
+            }
+
+            inodo_users.i_block[i] = bloque_libre;
+            bitmap[bloque_libre] = '1';
+            fseek(archivo, super.s_bm_block_start, SEEK_SET);
+            fwrite(bitmap.data(), 1, super.s_blocks_count, archivo);
+            super.s_free_blocks_count--;
+
+            fseek(archivo, inicio_particion, SEEK_SET);
+            fwrite(&super, sizeof(Superblock), 1, archivo);
+        }
+    }
+
     int bytes_escritos = 0;
     int bloque_actual = 0;
-    
+
     while (bytes_escritos < (int)contenido.length() && bloque_actual < 12) {
+        if (inodo_users.i_block[bloque_actual] == -1) break;
+        
         FileBlock bloque;
         memset(bloque.b_content, 0, 64);
-        
+
         int bytes_a_escribir = std::min(64, (int)contenido.length() - bytes_escritos);
         memcpy(bloque.b_content, contenido.c_str() + bytes_escritos, bytes_a_escribir);
-        
+
         int pos_bloque = super.s_block_start + (inodo_users.i_block[bloque_actual] * sizeof(FileBlock));
         fseek(archivo, pos_bloque, SEEK_SET);
         fwrite(&bloque, sizeof(FileBlock), 1, archivo);
-        
+
         bytes_escritos += bytes_a_escribir;
         bloque_actual++;
     }
-    
+
     fseek(archivo, pos_inodo1, SEEK_SET);
     fwrite(&inodo_users, sizeof(Inode), 1, archivo);
-    
+
     fclose(archivo);
     return true;
 }

@@ -66,35 +66,60 @@ inline std::string comandoMove(const std::string& ruta_origen,
         return "Error: No tiene permisos de escritura sobre '" + ruta_origen + "'";
     }
 
-    // Verificar que el destino existe y es carpeta
+    // Verificar el destino
     ResultadoNavegacion nav_destino = navegarRuta(archivo, super, ruta_destino, false);
-    if (!nav_destino.exito) {
-        fclose(archivo);
-        return "Error: No se encontró el destino '" + ruta_destino + "'";
-    }
 
-    Inode inodo_destino = leerInodo(archivo, super, nav_destino.inodo_actual);
-    if (inodo_destino.i_type != '1') {
-        fclose(archivo);
-        return "Error: El destino '" + ruta_destino + "' no es una carpeta";
-    }
+    std::string nombre;
+    int inodo_carpeta_destino;
 
-    // Verificar permiso de escritura en destino
-    if (!verificarPermiso(inodo_destino,
-                          SessionManager::currentSession.uid,
-                          SessionManager::currentSession.gid,
-                          SessionManager::currentSession.isRoot,
-                          PERMISO_ESCRITURA)) {
-        fclose(archivo);
-        return "Error: No tiene permisos de escritura en el destino";
-    }
+    if (nav_destino.exito) {
+        // El destino existe: debe ser carpeta
+        Inode inodo_destino = leerInodo(archivo, super, nav_destino.inodo_actual);
+        if (inodo_destino.i_type != '1') {
+            fclose(archivo);
+            return "Error: El destino '" + ruta_destino + "' no es una carpeta";
+        }
+        if (!verificarPermiso(inodo_destino,
+                              SessionManager::currentSession.uid,
+                              SessionManager::currentSession.gid,
+                              SessionManager::currentSession.isRoot,
+                              PERMISO_ESCRITURA)) {
+            fclose(archivo);
+            return "Error: No tiene permisos de escritura en el destino";
+        }
+        nombre = obtenerNombreArchivo(ruta_origen);
+        inodo_carpeta_destino = nav_destino.inodo_actual;
+    } else {
+        // El destino no existe: verificar que el padre sí exista
+        std::string padre_destino = obtenerRutaPadre(ruta_destino);
+        nombre = obtenerNombreArchivo(ruta_destino);
 
-    std::string nombre = obtenerNombreArchivo(ruta_origen);
+        ResultadoNavegacion nav_padre_dest = navegarRuta(archivo, super, padre_destino, false);
+        if (!nav_padre_dest.exito) {
+            fclose(archivo);
+            return "Error: No se encontró el destino '" + ruta_destino + "'";
+        }
+
+        Inode inodo_padre_dest = leerInodo(archivo, super, nav_padre_dest.inodo_actual);
+        if (inodo_padre_dest.i_type != '1') {
+            fclose(archivo);
+            return "Error: El destino '" + padre_destino + "' no es una carpeta";
+        }
+        if (!verificarPermiso(inodo_padre_dest,
+                              SessionManager::currentSession.uid,
+                              SessionManager::currentSession.gid,
+                              SessionManager::currentSession.isRoot,
+                              PERMISO_ESCRITURA)) {
+            fclose(archivo);
+            return "Error: No tiene permisos de escritura en el destino";
+        }
+        inodo_carpeta_destino = nav_padre_dest.inodo_actual;
+    }
 
     // Verificar que no exista ya un elemento con ese nombre en el destino
-    inodo_destino = leerInodo(archivo, super, nav_destino.inodo_actual);
-    for (int i = 0; i < 12 && inodo_destino.i_block[i] != -1; i++) {
-        FolderBlock fb = leerBloqueCarpeta(archivo, super, inodo_destino.i_block[i]);
+    Inode inodo_dest_final = leerInodo(archivo, super, inodo_carpeta_destino);
+    for (int i = 0; i < 12 && inodo_dest_final.i_block[i] != -1; i++) {
+        FolderBlock fb = leerBloqueCarpeta(archivo, super, inodo_dest_final.i_block[i]);
         for (int j = 0; j < 4; j++) {
             if (fb.b_content[j].b_inodo == -1) continue;
             char buf[13] = {0};
@@ -107,11 +132,11 @@ inline std::string comandoMove(const std::string& ruta_origen,
     }
 
     // Agregar entrada en el destino
-    inodo_destino = leerInodo(archivo, super, nav_destino.inodo_actual);
+    inodo_dest_final = leerInodo(archivo, super, inodo_carpeta_destino);
     bool agregado = false;
 
-    for (int i = 0; i < 12 && inodo_destino.i_block[i] != -1 && !agregado; i++) {
-        if (agregarEntradaEnBloque(archivo, super, inodo_destino.i_block[i],
+    for (int i = 0; i < 12 && inodo_dest_final.i_block[i] != -1 && !agregado; i++) {
+        if (agregarEntradaEnBloque(archivo, super, inodo_dest_final.i_block[i],
                                    nombre, nav_origen.inodo_actual)) {
             agregado = true;
         }
@@ -121,7 +146,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
         // Necesita nuevo bloque en el destino
         int slot_libre = -1;
         for (int i = 0; i < 12; i++) {
-            if (inodo_destino.i_block[i] == -1) { slot_libre = i; break; }
+            if (inodo_dest_final.i_block[i] == -1) { slot_libre = i; break; }
         }
 
         if (slot_libre == -1) {
@@ -142,8 +167,8 @@ inline std::string comandoMove(const std::string& ruta_origen,
 
         escribirBloqueCarpeta(archivo, super, nuevo_bloque, fb_vacio);
         marcarBloqueUsado(archivo, super, nuevo_bloque);
-        inodo_destino.i_block[slot_libre] = nuevo_bloque;
-        escribirInodo(archivo, super, nav_destino.inodo_actual, inodo_destino);
+        inodo_dest_final.i_block[slot_libre] = nuevo_bloque;
+        escribirInodo(archivo, super, inodo_carpeta_destino, inodo_dest_final);
         super.s_free_blocks_count--;
     }
 
@@ -171,7 +196,7 @@ inline std::string comandoMove(const std::string& ruta_origen,
                 char buf[13] = {0};
                 strncpy(buf, fb.b_content[j].b_name, 12);
                 if (std::string(buf) == "..") {
-                    fb.b_content[j].b_inodo = nav_destino.inodo_actual;
+                    fb.b_content[j].b_inodo = inodo_carpeta_destino;
                     escribirBloqueCarpeta(archivo, super, inodo_origen.i_block[i], fb);
                     goto punto_punto_actualizado;
                 }

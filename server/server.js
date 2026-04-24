@@ -421,6 +421,4 @@ app.get('/api/health', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
-    console.log(`Binario C++: ${DISK_MANAGER_PATH}`);
-    console.log(`Binario existe: ${fs.existsSync(DISK_MANAGER_PATH)}`);
 });

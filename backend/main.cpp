@@ -359,8 +359,19 @@ std::string executeCommand(const std::string& commandLine) {
 
     } else if (cmd == "mkdir") {
         std::string dirPath = parseParameter(commandLine, "-path");
-        bool hasP = (commandLine.find(" -p") != std::string::npos ||
-                     commandLine.find("\t-p") != std::string::npos);
+        bool hasP = false;
+        {
+            size_t pos = 0;
+            while ((pos = commandLine.find("-p", pos)) != std::string::npos) {
+                bool inicio_ok = (pos == 0 || commandLine[pos-1] == ' ' || commandLine[pos-1] == '\t');
+                size_t fin = pos + 2;
+                bool fin_ok = (fin >= commandLine.size() || commandLine[fin] == ' ' || 
+                           commandLine[fin] == '\t' || commandLine[fin] == '\n' || 
+                           commandLine[fin] == '\r');
+            if (inicio_ok && fin_ok) { hasP = true; break; }
+                pos += 2;
+            }
+        }
         if (dirPath.empty()) return "Error: mkdir requiere -path";
         std::string result = comandoMkdir(dirPath, hasP);
         
@@ -375,8 +386,19 @@ std::string executeCommand(const std::string& commandLine) {
 
     } else if (cmd == "mkfile") {
         std::string filePath = parseParameter(commandLine, "-path");
-        bool hasR = (commandLine.find(" -r") != std::string::npos ||
-                     commandLine.find("\t-r") != std::string::npos);
+        bool hasR = false;
+        {
+            size_t pos = 0;
+            while ((pos = commandLine.find("-p", pos)) != std::string::npos) {
+                bool inicio_ok = (pos == 0 || commandLine[pos-1] == ' ' || commandLine[pos-1] == '\t');
+                size_t fin = pos + 2;
+                bool fin_ok = (fin >= commandLine.size() || commandLine[fin] == ' ' || 
+                           commandLine[fin] == '\t' || commandLine[fin] == '\n' || 
+                           commandLine[fin] == '\r');
+                if (inicio_ok && fin_ok) { hasR = true; break; }
+                pos += 2;
+            }
+        }
         std::string sizeStr = parseParameter(commandLine, "-size");
         std::string cont    = parseParameter(commandLine, "-cont");
         int size = 0;

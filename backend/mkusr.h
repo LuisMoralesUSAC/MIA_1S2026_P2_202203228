@@ -167,7 +167,7 @@ std::string comandoMkusr(const std::string& usuario, const std::string& password
     if (password.length() > 10) {
         return "Error: La contraseña no puede exceder 10 caracteres";
     }
-    if (grupo.length() > 10) {
+    if (grupo.length() > 16) {
         return "Error: El nombre del grupo no puede exceder 10 caracteres";
     }
     
