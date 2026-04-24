@@ -4,8 +4,8 @@ const api = axios.create({
     baseURL: '/api'
 });
 
-export const ejecutarScript = async (script) => {
-    const response = await api.post('/execute-script', { script });
+export const ejecutarScript = async (script, sesion = null) => {
+    const response = await api.post('/execute-script', { script, sesion });
     return response.data;
 };
 

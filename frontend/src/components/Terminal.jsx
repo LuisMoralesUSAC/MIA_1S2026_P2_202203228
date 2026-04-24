@@ -25,7 +25,7 @@ function Terminal({ sesionActiva, onLogin, onLogout }) {
         agregarSalida('\n> Ejecutando...');
 
         try {
-            const data = await ejecutarScript(input);
+            const data = await ejecutarScript(input, sesionActiva);
 
             if (data.results) {
                 data.results.forEach(result => {
@@ -34,7 +34,6 @@ function Terminal({ sesionActiva, onLogin, onLogout }) {
                     if (result.error)  agregarSalida(`Error: ${result.error}`);
                 });
 
-                // Detectar login/logout para actualizar estado de sesion
                 const textos = data.results.map(r => r.output || '').join('\n');
                 if (textos.includes('Sesión iniciada exitosamente')) {
                     const matchUser = textos.match(/Usuario: (\S+)/);

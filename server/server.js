@@ -14,6 +14,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const DISK_MANAGER_PATH = path.join(__dirname, '../backend/disk_manager');
 const registeredDisks = new Map();
+const mountOrder = []; // [{diskPath, partName, mountId}]
+let sesionActivaServidor = null;
 
 function runCommands(lines) {
     return new Promise((resolve, reject) => {
@@ -79,9 +81,8 @@ function parsearJournal(stdout) {
     return entradas;
 }
 
-
 app.post('/api/execute-script', async (req, res) => {
-    const { script } = req.body;
+    const { script, sesion } = req.body;
     if (!script) {
         return res.status(400).json({ error: 'No se proporcionó ningún script' });
     }
@@ -95,12 +96,89 @@ app.post('/api/execute-script', async (req, res) => {
         return res.json({ results: [] });
     }
 
+    // Actualizar sesión del servidor si el frontend envió una
+    if (sesion && sesion.activa) {
+        sesionActivaServidor = {
+            usuario:  sesion.usuario,
+            password: sesion.password,
+            id:       sesion.id
+        };
+    }
+
+    const prepCommands = mountOrder.map(m =>
+        `mount -path=${m.diskPath} -name=${m.partName}`
+    );
+
+    // Si hay sesión activa, agregar login automático
+    if (sesionActivaServidor) {
+        prepCommands.push(
+            `login -user=${sesionActivaServidor.usuario} -pass=${sesionActivaServidor.password} -id=${sesionActivaServidor.id}`
+        );
+    }
+    const allCommands = [...prepCommands, ...lines];
+
     try {
-        const stdout = await runCommands(lines);
+        const stdout = await runCommands(allCommands);
         const parts = stdout.split(/\n> /).map(p => p.trim());
+        const scriptParts = parts.slice(prepCommands.length);
         const results = lines.map((cmd, i) => {
-            let output = (parts[i] || '').replace(/\nSaliendo del programa\.\.\.\s*$/, '').trim();
+            let output = (scriptParts[i] || '').replace(/\nSaliendo del programa\.\.\.\s*$/, '').trim();
             return { command: cmd, output, error: null };
+        });
+
+        // Detectar mounts exitosos en el script
+        results.forEach(r => {
+            if (r.output && r.output.includes('Partición montada exitosamente')) {
+                const matchId   = r.output.match(/ID:\s*(\S+)/);
+                const matchDisk = r.output.match(/Disco:\s*(.+)/);
+                const matchPart = r.output.match(/Partición:\s*(\S+)/);
+                if (matchId && matchDisk && matchPart) {
+                    const mountId  = matchId[1].trim();
+                    const diskPath = matchDisk[1].trim();
+                    const partName = matchPart[1].trim();
+
+                    if (!registeredDisks.has(diskPath)) {
+                        registeredDisks.set(diskPath, {
+                            path: diskPath,
+                            name: path.basename(diskPath),
+                            partitions: []
+                        });
+                    }
+                    const disk = registeredDisks.get(diskPath);
+                    if (!disk.partitions.find(p => p.mountId === mountId)) {
+                        disk.partitions.push({ name: partName, mountId });
+                    }
+                    if (!mountOrder.find(m => m.mountId === mountId)) {
+                        mountOrder.push({ diskPath, partName, mountId });
+                    }
+                }
+            }
+
+            // Detectar unmounts
+            if (r.output && r.output.includes('Partición desmontada exitosamente')) {
+                const matchId = r.output.match(/ID:\s*(\S+)/);
+                if (matchId) {
+                    const mountId = matchId[1].trim();
+                    for (const [, diskInfo] of registeredDisks.entries()) {
+                        diskInfo.partitions = diskInfo.partitions.filter(p => p.mountId !== mountId);
+                    }
+                    const idx = mountOrder.findIndex(m => m.mountId === mountId);
+                    if (idx !== -1) mountOrder.splice(idx, 1);
+                }
+            }
+
+            // Detectar login desde script
+            if (r.output && r.output.includes('Sesión iniciada exitosamente')) {
+                const matchUser = r.output.match(/Usuario: (\S+)/);
+                const matchId   = r.output.match(/ID Partición: (\S+)/);
+                if (matchUser && matchId) {
+                }
+            }
+
+            // Detectar logout desde script
+            if (r.output && r.output.includes('Sesión cerrada exitosamente')) {
+                sesionActivaServidor = null;
+            }
         });
 
         res.json({ results });
@@ -113,47 +191,68 @@ app.post('/api/execute-script', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { id, usuario, password, diskPath, partitionName } = req.body;
 
-    if (!id || !usuario || !password || !diskPath || !partitionName) {
+    if (!id || !usuario || !password) {
         return res.status(400).json({
             success: false,
-            message: 'Faltan parámetros: id, usuario, password, diskPath y partitionName son obligatorios'
+            message: 'Faltan parámetros: id, usuario y password son obligatorios'
         });
     }
 
-    const expandedPath = expandPath(diskPath);
+    // Buscar disco y partición desde registeredDisks
+    let resolvedDiskPath = diskPath ? expandPath(diskPath) : null;
+    let resolvedPartName = partitionName || null;
 
-    if (!fs.existsSync(expandedPath)) {
-        return res.status(404).json({ success: false, message: `Disco no encontrado: ${expandedPath}` });
+    if (!resolvedDiskPath || !resolvedPartName) {
+        for (const [dPath, diskInfo] of registeredDisks.entries()) {
+            const found = diskInfo.partitions.find(p => p.mountId === id);
+            if (found) {
+                resolvedDiskPath = dPath;
+                resolvedPartName = found.name;
+                break;
+            }
+        }
+    }
+
+    if (!resolvedDiskPath || !resolvedPartName) {
+        return res.status(404).json({
+            success: false,
+            message: `No se encontró ninguna partición con ID '${id}'. Asegúrese de haber ejecutado mount desde la terminal primero.`
+        });
+    }
+
+    if (!fs.existsSync(resolvedDiskPath)) {
+        return res.status(404).json({
+            success: false,
+            message: `Disco no encontrado: ${resolvedDiskPath}`
+        });
     }
 
     try {
-        const stdout = await runCommands([
-            `mount -path=${expandedPath} -name=${partitionName}`,
-            `login -user=${usuario} -pass=${password} -id=${id}`
-        ]);
+        const idxObjetivo = mountOrder.findIndex(m => m.mountId === id);
+        if (idxObjetivo === -1) {
+            return res.status(404).json({
+                success: false,
+                message: `No se encontró el ID '${id}' en el historial de mounts.`
+            });
+        }
 
+        const mountsNecesarios = mountOrder.slice(0, idxObjetivo + 1);
+        const comandos = [
+            ...mountsNecesarios.map(m => `mount -path=${m.diskPath} -name=${m.partName}`),
+            `login -user=${usuario} -pass=${password} -id=${id}`
+        ];
+
+        const stdout = await runCommands(comandos);
         const success = stdout.includes('Sesión iniciada exitosamente');
 
+        // Guardar sesión activa en el servidor
         if (success) {
-            // Registrar disco para que aparezca en /api/disks
-            if (!registeredDisks.has(expandedPath)) {
-                registeredDisks.set(expandedPath, {
-                    path: expandedPath,
-                    name: path.basename(expandedPath),
-                    partitions: []
-                });
-            }
-            const disk = registeredDisks.get(expandedPath);
-            if (!disk.partitions.find(p => p.name === partitionName)) {
-                disk.partitions.push({ name: partitionName, mountId: id });
-            }
+            sesionActivaServidor = { usuario, password: password, id };
         }
 
         res.json({
             success,
-            message: success
-                ? 'Login exitoso'
-                : 'Credenciales incorrectas o partición no encontrada'
+            message: success ? 'Login exitoso' : 'Credenciales incorrectas o partición no encontrada'
         });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });

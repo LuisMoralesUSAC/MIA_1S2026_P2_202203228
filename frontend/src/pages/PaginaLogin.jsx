@@ -8,8 +8,6 @@ function PaginaLogin({ onLoginExitoso, onVolver }) {
     const [recordar, setRecordar]       = useState(false);
     const [error, setError]             = useState('');
     const [cargando, setCargando]       = useState(false);
-    const [diskPath, setDiskPath]       = useState(localStorage.getItem('mia_diskPath') || '');
-    const [partName, setPartName]       = useState(localStorage.getItem('mia_partName') || '');
 
     const manejarLogin = async () => {
         if (!idParticion.trim() || !usuario.trim() || !password.trim()) {
@@ -21,14 +19,12 @@ function PaginaLogin({ onLoginExitoso, onVolver }) {
         setError('');
 
         try {
-            const data = await loginGrafico(idParticion.trim(), usuario.trim(), password.trim(), diskPath.trim(), partName.trim());
+            const data = await loginGrafico(idParticion.trim(), usuario.trim(), password.trim(), '', '');
 
             if (data.success) {
                 if (recordar) {
                     localStorage.setItem('mia_usuario', usuario.trim());
                     localStorage.setItem('mia_id', idParticion.trim());
-                    localStorage.setItem('mia_diskPath', diskPath.trim());
-                    localStorage.setItem('mia_partName', partName.trim());
                 }
                 onLoginExitoso(usuario.trim(), idParticion.trim(), password.trim());
             } else {
@@ -86,30 +82,6 @@ function PaginaLogin({ onLoginExitoso, onVolver }) {
                             placeholder="••••••••"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
-                            onKeyDown={manejarTecla}
-                        />
-                    </div>
-
-                    <div style={estilos.campo}>
-                        <label style={estilos.etiqueta}>Ruta del Disco</label>
-                        <input
-                            style={estilos.input}
-                            type="text"
-                            placeholder="Ej: ~/discos/Test.mia"
-                            value={diskPath}
-                            onChange={e => setDiskPath(e.target.value)}
-                            onKeyDown={manejarTecla}
-                        />
-                    </div>
-
-                    <div style={estilos.campo}>
-                        <label style={estilos.etiqueta}>Nombre de Partición</label>
-                        <input
-                            style={estilos.input}
-                            type="text"
-                            placeholder="Ej: Part1"
-                            value={partName}
-                            onChange={e => setPartName(e.target.value)}
                             onKeyDown={manejarTecla}
                         />
                     </div>
