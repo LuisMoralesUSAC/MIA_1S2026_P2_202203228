@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: '/api'
+    baseURL: 'http://98.86.229.241:4000/api'
 });
 
 export const ejecutarScript = async (script, sesion = null) => {

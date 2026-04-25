@@ -156,19 +156,7 @@ El sistema está compuesto por cuatro capas principales:
 2. **Crear bucket S3** con nombre único, región deseada.
 3. **Habilitar hospedaje de sitio web estático** en las propiedades del bucket.
 4. **Subir la carpeta `build/`** al bucket.
-5. **Configurar política de bucket** para acceso público de lectura:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [{
-       "Effect": "Allow",
-       "Principal": "*",
-       "Action": "s3:GetObject",
-       "Resource": "arn:aws:s3:::NOMBRE-DEL-BUCKET/*"
-     }]
-   }
-   ```
-6. El frontend queda accesible en la URL de endpoint S3.
+5. El frontend queda accesible en la URL de endpoint S3.
 
 ### Configuración CORS en el servidor
 
